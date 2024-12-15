@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+import "google/protobuf/duration.proto";
+
+package proto;
+
+option go_package = "./proto";
+
+message ListHashListsResponse {
+  repeated HashList hashLists = 1; // List of hash lists
+}
+
+message HashList {
+  string name = 1; // The name of the hash list. Note that the Global Cache is also just a hash list and can be referred to here.
+  bytes version = 2; // The version of the hash list. The client MUST NOT manipulate those bytes. A base64-encoded string.
+
+  // The Rice-delta encoded version of removal indices. Since each hash list definitely has less than 2^32 entries, the indices are treated as 32-bit integers and encoded.
+  RiceDeltaEncoded32Bit compressedRemovals = 4;
+
+  // Clients should wait at least this long to get the hash list again.
+  // If omitted or zero, clients SHOULD fetch immediately because it indicates that the server has an additional update to be sent to the client, but could not due to the client-specified constraints.
+  google.protobuf.Duration minimumWaitDuration = 6;
+
+  oneof checksum {
+    bytes sha256Checksum = 7; // Base64-encoded string
+  }
+
+  // Metadata about the hash list. This is not populated by the hashList.get method, but this is populated by the ListHashLists method.
+  HashListMetadata metadata = 8;
+
+  oneof compressed_additions {
+    RiceDeltaEncoded256Bit additionsThirtyTwoBytes = 11;
+  }
+}
+
+message RiceDeltaEncoded32Bit {
+  uint32 firstValue = 1;
+  int32 riceParameter = 2;
+  int32 entriesCount = 3;
+  bytes encodedData = 4; // Base64-encoded string
+}
+
+message RiceDeltaEncoded256Bit {
+  string firstValueFirstPart = 1; // Base64-encoded string
+  uint64 firstValueSecondPart = 2;
+  uint64 firstValueThirdPart = 3;
+  uint64 firstValueFourthPart = 4;
+  int32 riceParameter = 5;
+  int32 entriesCount = 6;
+  bytes encodedData = 7; // Base64-encoded string
+}
+
+message HashListMetadata {
+  repeated ThreatType threatTypes = 1;
+  repeated LikelySafeType likelySafeTypes = 2;
+  bool mobileOptimized = 3;
+  string description = 4;
+  repeated HashLength supportedHashLengths = 5;
+}
+
+enum ThreatType {
+  THREAT_TYPE_UNSPECIFIED = 0;
+  MALWARE = 1;
+  SOCIAL_ENGINEERING = 2;
+  UNWANTED_SOFTWARE = 3;
+  POTENTIALLY_HARMFUL_APPLICATION = 4;
+}
+
+enum LikelySafeType {
+  LIKELY_SAFE_TYPE_UNSPECIFIED = 0;
+  GENERAL_BROWSING = 1;
+  CSD = 2;
+  DOWNLOAD = 3;
+}
+
+enum HashLength {
+  HASH_LENGTH_UNSPECIFIED = 0;
+  FOUR_BYTES = 1;
+  EIGHT_BYTES = 2;
+  SIXTEEN_BYTES = 3;
+  THIRTY_TWO_BYTES = 4;
+}
