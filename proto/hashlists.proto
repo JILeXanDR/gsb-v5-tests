@@ -10,6 +10,11 @@ message ListHashListsResponse {
   repeated HashList hashLists = 1; // List of hash lists
 }
 
+message FullHashesResponse {
+  repeated FullHash fullHashes = 1;
+  string cacheDuration = 2;
+}
+
 message HashList {
   string name = 1; // The name of the hash list. Note that the Global Cache is also just a hash list and can be referred to here.
   bytes version = 2; // The version of the hash list. The client MUST NOT manipulate those bytes. A base64-encoded string.
@@ -41,10 +46,10 @@ message RiceDeltaEncoded32Bit {
 }
 
 message RiceDeltaEncoded256Bit {
-  string firstValueFirstPart = 1; // Base64-encoded string
-  uint64 firstValueSecondPart = 2;
-  uint64 firstValueThirdPart = 3;
-  uint64 firstValueFourthPart = 4;
+  uint64 firstValueFirstPart = 1;
+  fixed64 firstValueSecondPart = 2;
+  fixed64 firstValueThirdPart = 3;
+  fixed64 firstValueFourthPart = 4;
   int32 riceParameter = 5;
   int32 entriesCount = 6;
   bytes encodedData = 7; // Base64-encoded string
@@ -75,8 +80,24 @@ enum LikelySafeType {
 
 enum HashLength {
   HASH_LENGTH_UNSPECIFIED = 0;
-  FOUR_BYTES = 1;
-  EIGHT_BYTES = 2;
-  SIXTEEN_BYTES = 3;
-  THIRTY_TWO_BYTES = 4;
+  FOUR_BYTES = 2; // supported by all lists except `GC`
+  EIGHT_BYTES = 3;
+  SIXTEEN_BYTES = 4; // supported by `GC` list
+  THIRTY_TWO_BYTES = 5; // supported by `GC` list
+}
+
+message FullHash {
+  string fullHash = 1;
+  repeated FullHashDetail fullHashDetails = 2;
+}
+
+message FullHashDetail {
+  ThreatType threatType = 1;
+  repeated ThreatAttribute attributes = 2;
+}
+
+enum ThreatAttribute {
+  THREAT_ATTRIBUTE_UNSPECIFIED = 0;
+  CANARY = 1;
+  FRAME_ONLY = 2;
 }
