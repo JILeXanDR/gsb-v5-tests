@@ -15,7 +15,7 @@ func checkURLIsSafe(rawURL string, lists []localList) (bool, error) {
 	}
 
 	for _, list := range lists {
-		log.Printf("check url %s in list %s", rawURL, list.name)
+		log.Printf("check url %s (expressions=%d) in list %s", rawURL, len(expressions), list.name)
 		found, err := findURLByPrefix(list, expressions)
 		if err != nil {
 			return false, err

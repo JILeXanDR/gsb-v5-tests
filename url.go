@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"strings"
@@ -104,18 +105,21 @@ func generatePathPrefixes(path string, query string) ([]string, error) {
 	// Add the full path without query string
 	prefixes = append(prefixes, path)
 
+	// Add the root path
+	if path != "/" {
+		prefixes = append(prefixes, "/")
+	}
+
 	// Add intermediate path prefixes
 	parts := strings.Split(strings.Trim(path, "/"), "/")
-	for i := 1; i < len(parts); i++ {
+
+	limit := int(math.Min(float64(len(parts)), 4))
+
+	for i := 1; i < limit; i++ {
 		prefix := "/" + strings.Join(parts[:i], "/") + "/"
 		if prefix != path { // Prevent re-adding the full path
 			prefixes = append(prefixes, prefix)
 		}
-	}
-
-	// Add the root path
-	if path != "/" {
-		prefixes = append(prefixes, "/")
 	}
 
 	return prefixes, nil

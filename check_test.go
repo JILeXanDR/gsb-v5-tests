@@ -69,6 +69,10 @@ func Test_localDBChecks(t *testing.T) {
 			input:  "https://example.com",
 			isSafe: true,
 		},
+		{
+			input:  "https://phdelaware.com/",
+			isSafe: false,
+		},
 	}
 
 	for _, test := range tests {
