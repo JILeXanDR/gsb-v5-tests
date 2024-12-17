@@ -66,24 +66,6 @@ func (c *apiClient) v5alpha1HashListsBatchGet(ctx context.Context, names []strin
 	return &response, body, nil
 }
 
-// GET https://safebrowsing.googleapis.com/v5alpha1/hashes:search
-func (c *apiClient) v5alpha1HashesSearch(ctx context.Context, hashPrefixes []string) (*codegen.FullHashesResponse, []byte, error) {
-	query := url.Values{}
-
-	for _, name := range hashPrefixes {
-		query.Add("hashPrefixes", name)
-	}
-
-	var response codegen.FullHashesResponse
-
-	body, err := c.request(ctx, "v5alpha1/hashes:search", query, &response)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return &response, body, nil
-}
-
 func (c *apiClient) request(ctx context.Context, path string, query url.Values, result proto.Message) ([]byte, error) {
 	if query == nil {
 		query = url.Values{}

@@ -1,12 +1,183 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"log"
+	"slices"
 	"sync"
+	"time"
 
 	"gsb-v5-tests/proto"
 )
+
+const (
+	updatesInterval = 30 * time.Minute
+)
+
+// Hardcode available lists like in docs says https://developers.google.com/safe-browsing/reference#available-lists.
+var recommendedLists = []*proto.HashList{
+	{
+		Name: "gc",
+		Metadata: &proto.HashListMetadata{
+			LikelySafeTypes: []proto.LikelySafeType{proto.LikelySafeType_GENERAL_BROWSING},
+		},
+	},
+	{
+		Name: "se",
+		Metadata: &proto.HashListMetadata{
+			ThreatTypes: []proto.ThreatType{proto.ThreatType_SOCIAL_ENGINEERING},
+		},
+	},
+	{
+		Name: "mw",
+		Metadata: &proto.HashListMetadata{
+			ThreatTypes: []proto.ThreatType{proto.ThreatType_MALWARE},
+		},
+	},
+	{
+		Name: "uws",
+		Metadata: &proto.HashListMetadata{
+			ThreatTypes: []proto.ThreatType{proto.ThreatType_UNWANTED_SOFTWARE},
+		},
+	},
+	{
+		Name: "uwsa",
+		Metadata: &proto.HashListMetadata{
+			ThreatTypes: []proto.ThreatType{proto.ThreatType_UNWANTED_SOFTWARE},
+		},
+	},
+	{
+		Name: "pha",
+		Metadata: &proto.HashListMetadata{
+			ThreatTypes: []proto.ThreatType{proto.ThreatType_POTENTIALLY_HARMFUL_APPLICATION},
+		},
+	},
+}
+
+type localDatabase struct {
+	api api
+
+	lists      []localList
+	lastUpdate time.Time
+
+	lock *sync.RWMutex
+}
+
+func newLocalDatabase(api api) *localDatabase {
+	return &localDatabase{
+		api:   api,
+		lists: make([]localList, 0),
+		lock:  &sync.RWMutex{},
+	}
+}
+
+func (d *localDatabase) runSelfUpdates(ctx context.Context) {
+	ticker := time.NewTicker(updatesInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := d.update(ctx); err != nil {
+				log.Printf("updating failed: %+v", err)
+			}
+		}
+	}
+}
+
+func (d *localDatabase) update(ctx context.Context) error {
+	log.Printf("running local database updates...")
+
+	// loadHashLists := sync.OnceValue(func() []*proto.HashList {
+	// 	log.Printf("loading list names once...")
+	//
+	// 	hashListsResult, _, err := d.api.v5alpha1HashLists(ctx)
+	// 	if err != nil {
+	// 		return nil
+	// 	}
+	//
+	// 	log.Printf("got hash lists, count=%d", len(hashListsResult.HashLists))
+	//
+	// 	return hashListsResult.HashLists
+	// })
+	//
+	// hashLists := loadHashLists()
+
+	var listNames []string
+
+	for _, list := range recommendedLists {
+		listNames = append(listNames, list.Name)
+	}
+
+	result, _, err := d.api.v5alpha1HashListsBatchGet(ctx, listNames)
+	if err != nil {
+		return err
+	}
+
+	return d.updateLists(result, recommendedLists)
+}
+
+func (d *localDatabase) findLikelySafeByHashes(hashes []Uint256) (likelySafeTypes []proto.LikelySafeType, err error) {
+	d.lock.RLock()
+	defer d.lock.RUnlock()
+
+	for _, list := range d.lists {
+		if len(list.likelySafeTypes) == 0 {
+			continue
+		}
+
+		if found := list.findUint256Hashes(hashes); found {
+			likelySafeTypes = append(likelySafeTypes, list.likelySafeTypes...)
+		}
+	}
+
+	return likelySafeTypes, nil
+}
+
+func (d *localDatabase) findThreatsByHashes(hashes []uint32) (threatTypes []proto.ThreatType, err error) {
+	d.lock.RLock()
+	defer d.lock.RUnlock()
+
+	for _, list := range d.lists {
+		if len(list.threatTypes) == 0 {
+			continue
+		}
+
+		if found := list.findUint32Hashes(hashes); found {
+			threatTypes = append(threatTypes, list.threatTypes...)
+		}
+	}
+
+	return threatTypes, nil
+}
+
+func (d *localDatabase) updateLists(result *proto.ListHashListsResponse, hashLists []*proto.HashList) error {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	lists, err := buildLocalLists(result, hashLists)
+	if err != nil {
+		return err
+	}
+
+	d.lists = lists
+	d.lastUpdate = time.Now()
+
+	for _, list := range d.lists {
+		log.Printf(
+			`updated local list "%s", entries=%d, threatTypes=%v, likelySafeTypes=%v, description=%s`,
+			list.name,
+			max(len(list.decodedUint32Hashes), len(list.decodedUint256Hashes)),
+			list.threatTypes,
+			list.likelySafeTypes,
+			list.description,
+		)
+	}
+
+	return nil
+}
 
 type localList struct {
 	name                 string
@@ -21,63 +192,36 @@ type localList struct {
 	sha256Checksum       []byte
 }
 
-type localDatabase struct {
-	lists []localList
-
-	lock *sync.RWMutex
-}
-
-func newLocalDatabase() *localDatabase {
-	return &localDatabase{
-		lists: make([]localList, 0),
-		lock:  &sync.RWMutex{},
-	}
-}
-
-func (d *localDatabase) findThreatsByHashes(hashes []uint32) (threatTypes []proto.ThreatType, err error) {
-	d.lock.RLock()
-	defer d.lock.RUnlock()
-
-	for _, list := range d.lists {
-		// log.Printf("check url %s (expressions=%d) in list %s", rawURL, len(expressions), list.name)
-		found, err := searchLocalListHashes(list, hashes)
-		if err != nil {
-			return threatTypes, err
-		}
+func (l *localList) findUint32Hashes(hashes []uint32) bool {
+	for _, hash := range hashes {
+		index, found := slices.BinarySearch(l.decodedUint32Hashes, hash)
+		log.Printf("check hash %d in %s list: found=%v", hash, l.name, found)
 		if found {
-			if len(list.threatTypes) == 0 {
-				return nil, fmt.Errorf("list does not have assigned threat types")
-			}
-			threatTypes = append(threatTypes, list.threatTypes...)
-			break
+			log.Printf("hash found: index=%d, threats=%v", index, l.threatTypes)
+			return true
 		}
 	}
 
-	return threatTypes, nil
+	log.Printf("hash not found in the list %s", l.name)
+
+	return false
 }
 
-func (d *localDatabase) updateListss(result *proto.ListHashListsResponse, hashLists []*proto.HashList) {
-	lists, err := buildLocalLists(result, hashLists)
-	if err != nil {
-		log.Printf("failed to build local lists: %+v", err)
-		return
+func (l *localList) findUint256Hashes(hashes []Uint256) bool {
+	for _, hash := range hashes {
+		index, found := slices.BinarySearchFunc(l.decodedUint256Hashes, hash, func(a, b Uint256) int {
+			return a.Compare(b)
+		})
+		log.Printf("check hash %v in %s list: found=%v", hash, l.name, found)
+		if found {
+			log.Printf("hash found: index=%d, threats=%v", index, l.threatTypes)
+			return true
+		}
 	}
 
-	d.lock.Lock()
-	d.lists = lists
-	d.lock.Unlock()
+	log.Printf("hash not found in the list %s", l.name)
 
-	for _, list := range d.lists {
-		log.Printf(
-			`updated local list "%s", entries=%d, threatTypes=%v, likelySafeTypes=%v, supportedHashLengths=%v, description=%s`,
-			list.name,
-			len(list.decodedUint32Hashes),
-			list.threatTypes,
-			list.likelySafeTypes,
-			list.supportedHashLengths,
-			list.description,
-		)
-	}
+	return false
 }
 
 func buildLocalLists(result *proto.ListHashListsResponse, hashLists []*proto.HashList) ([]localList, error) {
@@ -93,7 +237,14 @@ func buildLocalLists(result *proto.ListHashListsResponse, hashLists []*proto.Has
 		if res := list.CompressedRemovals; res != nil {
 			log.Printf("decode CompressedRemovals (RiceDeltaEncoded32Bit), first=%d entries=%d, rice=%d", res.FirstValue, res.EntriesCount, res.RiceParameter)
 
-			decodedHashes, err := DecodeUint32HashPrefixes(res.EncodedData, uint32(res.EntriesCount), res.FirstValue, uint32(res.RiceParameter))
+			enc := &golomb32BitEncoding{
+				FirstValue:    res.FirstValue,
+				RiceParameter: uint32(res.RiceParameter),
+				EncodedData:   res.EncodedData,
+				EntryCount:    uint32(res.EntriesCount),
+			}
+
+			decodedHashes, err := enc.Decode()
 			if err != nil {
 				return nil, err
 			}
@@ -113,7 +264,6 @@ func buildLocalLists(result *proto.ListHashListsResponse, hashLists []*proto.Has
 			})
 		}
 
-		// TODO: this is list for GC (Global Cache) and does not work.
 		if res := list.GetAdditionsThirtyTwoBytes(); res != nil {
 			log.Printf(
 				"decode GetAdditionsThirtyTwoBytes (RiceDeltaEncoded256Bit), first1=%d first2=%d first3=%d first4=%d entries=%d, rice=%d",
@@ -125,12 +275,19 @@ func buildLocalLists(result *proto.ListHashListsResponse, hashLists []*proto.Has
 				res.RiceParameter,
 			)
 
-			decodedHashes, err := DecodeUint256HashPrefixes(res.EncodedData, uint32(res.EntriesCount), Uint256{
-				Part1: res.FirstValueFirstPart,
-				Part2: res.FirstValueSecondPart,
-				Part3: res.FirstValueThirdPart,
-				Part4: res.FirstValueFourthPart,
-			}, uint32(res.RiceParameter))
+			enc := &golomb256BitEncoding{
+				FirstValuePart1: res.FirstValueFirstPart,
+				FirstValuePart2: res.FirstValueSecondPart,
+				FirstValuePart3: res.FirstValueThirdPart,
+				FirstValuePart4: res.FirstValueFourthPart,
+				RiceParameter:   uint32(res.RiceParameter),
+				EncodedData:     res.EncodedData,
+				EntryCount:      uint32(res.EntriesCount),
+			}
+
+			// TODO: this doesn't work
+
+			decodedHashes, err := enc.Decode()
 			if err != nil {
 				return nil, err
 			}

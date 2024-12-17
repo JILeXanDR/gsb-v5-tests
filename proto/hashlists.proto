@@ -10,11 +10,6 @@ message ListHashListsResponse {
   repeated HashList hashLists = 1; // List of hash lists
 }
 
-message FullHashesResponse {
-  repeated FullHash fullHashes = 1;
-  string cacheDuration = 2;
-}
-
 message HashList {
   string name = 1; // The name of the hash list. Note that the Global Cache is also just a hash list and can be referred to here.
   bytes version = 2; // The version of the hash list. The client MUST NOT manipulate those bytes. A base64-encoded string.
@@ -27,7 +22,7 @@ message HashList {
   google.protobuf.Duration minimumWaitDuration = 6;
 
   oneof checksum {
-    bytes sha256Checksum = 7; // Base64-encoded string
+    bytes sha256Checksum = 7;
   }
 
   // Metadata about the hash list. This is not populated by the hashList.get method, but this is populated by the ListHashLists method.
@@ -42,7 +37,7 @@ message RiceDeltaEncoded32Bit {
   uint32 firstValue = 1;
   int32 riceParameter = 2;
   int32 entriesCount = 3;
-  bytes encodedData = 4; // Base64-encoded string
+  bytes encodedData = 4;
 }
 
 message RiceDeltaEncoded256Bit {
@@ -52,7 +47,7 @@ message RiceDeltaEncoded256Bit {
   fixed64 firstValueFourthPart = 4;
   int32 riceParameter = 5;
   int32 entriesCount = 6;
-  bytes encodedData = 7; // Base64-encoded string
+  bytes encodedData = 7;
 }
 
 message HashListMetadata {
@@ -84,20 +79,4 @@ enum HashLength {
   EIGHT_BYTES = 3;
   SIXTEEN_BYTES = 4; // supported by `GC` list
   THIRTY_TWO_BYTES = 5; // supported by `GC` list
-}
-
-message FullHash {
-  string fullHash = 1;
-  repeated FullHashDetail fullHashDetails = 2;
-}
-
-message FullHashDetail {
-  ThreatType threatType = 1;
-  repeated ThreatAttribute attributes = 2;
-}
-
-enum ThreatAttribute {
-  THREAT_ATTRIBUTE_UNSPECIFIED = 0;
-  CANARY = 1;
-  FRAME_ONLY = 2;
 }

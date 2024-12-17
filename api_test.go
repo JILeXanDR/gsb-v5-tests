@@ -5,7 +5,6 @@ import (
 	"context"
 	"io"
 	"os"
-	"strconv"
 	"testing"
 
 	"github.com/joho/godotenv"
@@ -33,27 +32,12 @@ func Test_apiMethods(t *testing.T) {
 	})
 
 	t.Run("v5alpha1HashListsBatchGet", func(t *testing.T) {
-		result, body, err := api.v5alpha1HashListsBatchGet(context.TODO(), []string{"mw"})
+		result, body, err := api.v5alpha1HashListsBatchGet(context.TODO(), []string{"gc", "se", "mw", "uws", "uwsa", "pha"})
 		require.NoError(t, err)
 		require.NotEmpty(t, result)
 		require.NotEmpty(t, body)
 
 		writeFile(t, "./testdata/hashLists:batchGet.bin", body)
-	})
-
-	t.Run("v5alpha1HashesSearch", func(t *testing.T) {
-		t.Skip()
-
-		hashes := []string{
-			strconv.Itoa(int(hashPrefix("example.com"))),
-		}
-
-		result, body, err := api.v5alpha1HashesSearch(context.TODO(), hashes)
-		require.NoError(t, err)
-		require.NotEmpty(t, result)
-		require.NotEmpty(t, body)
-
-		writeFile(t, "./testdata/hashes:search.bin", body)
 	})
 }
 

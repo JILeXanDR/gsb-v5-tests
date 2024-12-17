@@ -62,14 +62,14 @@ func TestSafeBrowser_CheckURLs(t *testing.T) {
 	require.NotEmpty(t, apiKey, "GSB_API_KEY variable is not set")
 
 	sb, err := NewSafeBrowser(
-		// WithAPIKey(apiKey),
+		WithAPIKey(apiKey),
 		WithAPIClient(&fakeAPI{
 			dataDir: "./testdata",
 		}),
 	)
 	require.NoError(t, err)
 
-	go sb.RunUpdates(context.TODO())
+	go sb.Run(context.TODO())
 
 	tests := []struct {
 		input  string
@@ -111,13 +111,21 @@ func TestSafeBrowser_CheckURLs(t *testing.T) {
 			input:  "https://phdelaware.com/",
 			isSafe: false,
 		},
+		{
+			input:  "https://example.com",
+			isSafe: true,
+		},
+		{
+			input:  "https://google.com",
+			isSafe: true,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.input, func(t *testing.T) {
 			results, err := sb.CheckURLs(context.TODO(), []string{test.input})
 			require.NoError(t, err)
-			assert.Len(t, results, 1)
+			require.Len(t, results, 1)
 			assert.Equal(t, test.isSafe, results[0].Safe)
 		})
 	}
